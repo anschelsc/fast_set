@@ -1,7 +1,6 @@
-use std::alloc::{alloc, dealloc, Layout, LayoutError};
+use std::alloc::{alloc, dealloc, realloc, Layout, LayoutError};
 use std::error::Error;
 use std::fmt::Display;
-
 
 #[derive(Debug)]
 /// An `OutOfBounds` error occurs when [`FastSet::add`] or [`FastSet::remove`]
@@ -26,7 +25,7 @@ impl Error for OutOfBounds {}
 /// Each instance of `FastSet` has some maximal value, and uses heap space
 /// proportional to that value. Every operation except cloning, including [`new`](FastSet::new)
 /// and [`clear`](FastSet::clear), runs in constant time.
-/// Based on a neat trick described by Russ Cox at [https://research.swtch.com/sparse].
+/// Based on a neat trick described by Russ Cox at <https://research.swtch.com/sparse>.
 pub struct FastSet {
     sparse: *mut usize,
     backref: *mut usize,
@@ -176,11 +175,54 @@ impl Clone for FastSet {
         }
         ret
     }
+
+    /// Gives the allocator the opportunity to be smart; avoids allocation
+    /// entirely if `self.cap() == source.cap()`.
+    fn clone_from(&mut self, source: &Self) {
+        if self.cap == source.cap {
+            self.clear();
+        } else {
+            let old_layout = Layout::array::<usize>(self.cap).unwrap();
+            let new_layout = Layout::array::<usize>(source.cap).unwrap();
+            unsafe {
+                self.sparse =
+                    realloc(self.sparse as *mut u8, old_layout, new_layout.size()) as *mut usize;
+                self.backref =
+                    realloc(self.backref as *mut u8, old_layout, new_layout.size()) as *mut usize;
+            }
+            self.len = 0;
+            self.cap = source.cap;
+        }
+        for key in source {
+            unsafe {
+                self.unchecked_add(*key);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clone() {
+        let mut set1 = FastSet::new(10).unwrap();
+        set1.add(3).unwrap();
+        set1.add(4).unwrap();
+        set1.add(5).unwrap();
+        let mut set2 = FastSet::new(10).unwrap();
+        let mut set3 = FastSet::new(11).unwrap();
+        let mut set4 = FastSet::new(2).unwrap();
+        set2.clone_from(&set1);
+        set3.clone_from(&set1);
+        set4.clone_from(&set1);
+        let set5 = set1.clone();
+        for set in &[set2, set3, set4, set5] {
+            assert!(set.contains(5));
+            assert!(!set.contains(6));
+        }
+    }
 
     #[test]
     fn it_works() {
