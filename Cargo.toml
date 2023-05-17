@@ -2,6 +2,10 @@
 name = "fast_set"
 version = "0.1.0"
 edition = "2021"
+authors = ["Anschel Schaffer-Cohen <anschelsc@gmail.com>"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/anschelsc/fast_set"
+description = "A set of usize with O(1) creation, add, remove, contains, and clear functions."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
