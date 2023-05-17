@@ -26,6 +26,7 @@ impl Error for OutOfBounds {}
 /// Each instance of `FastSet` has some maximal value, and uses heap space
 /// proportional to that value. Every operation except cloning, including [`new`](FastSet::new)
 /// and [`clear`](FastSet::clear), runs in constant time.
+/// Based on a neat trick described by Russ Cox at [https://research.swtch.com/sparse].
 pub struct FastSet {
     sparse: *mut usize,
     backref: *mut usize,
