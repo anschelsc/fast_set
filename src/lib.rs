@@ -154,7 +154,7 @@ impl Drop for FastSet {
     }
 }
 
-/// This implementation wraps [`FastSet::keys`]; nothing fancy going on.
+/// Iteration runs in `O(self.len())` time.
 impl<'a> IntoIterator for &'a FastSet {
     type Item = &'a usize;
     type IntoIter = std::slice::Iter<'a, usize>;
