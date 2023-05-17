@@ -24,8 +24,8 @@ impl Error for OutOfBounds {}
 
 /// A `FastSet` is a set of `usize` with fast add, remove, contains, and clear operations.
 /// Each instance of `FastSet` has some maximal value, and uses heap space
-/// proportional to that value. Every operation, including (`new`)[FastSet::new]
-/// and (`clear`)[FastSet::clear], runs in constant time.
+/// proportional to that value. Every operation except cloning, including [`new`](FastSet::new)
+/// and [`clear`](FastSet::clear), runs in constant time.
 pub struct FastSet {
     sparse: *mut usize,
     backref: *mut usize,
@@ -61,17 +61,6 @@ impl FastSet {
         self.cap
     }
 
-    /// Checks whether the set contains the given key. `key` must be less than
-    /// `self.cap()`.
-    pub unsafe fn unchecked_contains(&self, key: usize) -> bool {
-        // We are assuming key < cap, in particular key < isize::MAX
-        let index = *self.sparse.offset(key as isize);
-        if index >= self.len {
-            return false;
-        }
-        *self.backref.offset(index as isize) == key
-    }
-
     /// Checks whether the set contains the given key. Will always return
     /// `false` if `key >= self.cap()`.
     pub fn contains(&self, key: usize) -> bool {
@@ -80,15 +69,6 @@ impl FastSet {
         } else {
             unsafe { self.unchecked_contains(key) }
         }
-    }
-
-    /// Adds the given key to the set. The key must be less than `self.cap()`
-    /// and not already in the set.
-    pub unsafe fn unchecked_add(&mut self, key: usize) {
-        // Assuming key < cap and key is not already in the set
-        *self.sparse.offset(key as isize) = self.len;
-        *self.backref.offset(self.len as isize) = key;
-        self.len += 1;
     }
 
     /// Adds the given key to the set. Returns an `OutOfBounds` if `key > self.cap()`.
@@ -103,24 +83,6 @@ impl FastSet {
             }
         }
         Ok(())
-    }
-
-    /// Removes all elements from the set.
-    pub fn clear(&mut self) {
-        self.len = 0;
-    }
-
-    /// Removes the given key from the set. The key must be less than
-    /// `self.cap()` and already in the set.
-    pub unsafe fn unchecked_remove(&mut self, key: usize) {
-        // Assuming self.contains(key) so in particular key < cap
-        let to_delete_index = *self.sparse.offset(key as isize);
-        let to_delete = self.backref.offset(to_delete_index as isize);
-        let last = self.backref.offset(self.len as isize - 1);
-        let moved_key = *last;
-        *to_delete = moved_key;
-        *self.sparse.offset(moved_key as isize) = to_delete_index;
-        self.len -= 1;
     }
 
     /// Removes the given key from the set.
@@ -138,9 +100,47 @@ impl FastSet {
         Ok(())
     }
 
+    /// Removes all elements from the set.
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
     /// Returns a slice containing the keys of the set, in arbitrary order.
     pub fn keys(&self) -> &[usize] {
         unsafe { std::slice::from_raw_parts(self.backref, self.len) }
+    }
+
+    /// Checks whether the set contains the given key. The key must be less than
+    /// `self.cap()`.
+    pub unsafe fn unchecked_contains(&self, key: usize) -> bool {
+        // We are assuming key < cap, in particular key < isize::MAX
+        let index = *self.sparse.offset(key as isize);
+        if index >= self.len {
+            return false;
+        }
+        *self.backref.offset(index as isize) == key
+    }
+
+    /// Adds the given key to the set. The key must be less than `self.cap()`
+    /// and not already in the set.
+    pub unsafe fn unchecked_add(&mut self, key: usize) {
+        // Assuming key < cap and key is not already in the set
+        *self.sparse.offset(key as isize) = self.len;
+        *self.backref.offset(self.len as isize) = key;
+        self.len += 1;
+    }
+
+    /// Removes the given key from the set. The key must be less than
+    /// `self.cap()` and already in the set.
+    pub unsafe fn unchecked_remove(&mut self, key: usize) {
+        // Assuming self.contains(key) so in particular key < cap
+        let to_delete_index = *self.sparse.offset(key as isize);
+        let to_delete = self.backref.offset(to_delete_index as isize);
+        let last = self.backref.offset(self.len as isize - 1);
+        let moved_key = *last;
+        *to_delete = moved_key;
+        *self.sparse.offset(moved_key as isize) = to_delete_index;
+        self.len -= 1;
     }
 }
 
@@ -165,7 +165,7 @@ impl<'a> IntoIterator for &'a FastSet {
 }
 
 impl Clone for FastSet {
-    /// Cloning a `FastSet` takes `O(self.len())` time
+    /// Cloning a `FastSet` takes `O(self.len())` time.
     fn clone(&self) -> Self {
         let mut ret = Self::new(self.cap).unwrap();
         unsafe {
