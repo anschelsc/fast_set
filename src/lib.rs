@@ -1,4 +1,4 @@
-use std::alloc::{alloc, dealloc, realloc, Layout, LayoutError};
+use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout, LayoutError};
 use std::error::Error;
 use std::fmt::Display;
 
@@ -23,8 +23,10 @@ impl Error for OutOfBounds {}
 
 /// A `FastSet` is a set of `usize` with fast add, remove, contains, and clear operations.
 /// Each instance of `FastSet` has some maximal value, and uses heap space
-/// proportional to that value. Every operation except cloning, including [`new`](FastSet::new)
-/// and [`clear`](FastSet::clear), runs in constant time.
+/// proportional to that value. Every operation except cloning, including
+/// [`clear`](FastSet::clear), runs in constant time. [`new`](FastSet::new)
+/// should also run in constant time if [`alloc_zeroed`](std::alloc::alloc_zeroed)
+/// does, which I am assured is true on any modern OS.
 /// Based on a neat trick described by Russ Cox at <https://research.swtch.com/sparse>.
 pub struct FastSet {
     sparse: *mut usize,
@@ -39,7 +41,7 @@ impl FastSet {
     /// Returns an error if `cap` is greater than `isize::MAX`.
     pub fn new(cap: usize) -> Result<FastSet, LayoutError> {
         let layout = Layout::array::<usize>(cap)?;
-        let sparse = unsafe { alloc(layout) as *mut usize };
+        let sparse = unsafe { alloc_zeroed(layout) as *mut usize };
         let backref = unsafe { alloc(layout) as *mut usize };
         Ok(FastSet {
             sparse,
@@ -184,9 +186,20 @@ impl Clone for FastSet {
         } else {
             let old_layout = Layout::array::<usize>(self.cap).unwrap();
             let new_layout = Layout::array::<usize>(source.cap).unwrap();
+            if self.cap > source.cap {
+                // shrinking, safe to use realloc
+                unsafe {
+                    self.sparse = realloc(self.sparse as *mut u8, old_layout, new_layout.size())
+                        as *mut usize;
+                }
+            } else {
+                // growing, use alloc_zeroed
+                unsafe {
+                    dealloc(self.sparse as *mut u8, old_layout);
+                    self.sparse = alloc_zeroed(new_layout) as *mut usize;
+                }
+            }
             unsafe {
-                self.sparse =
-                    realloc(self.sparse as *mut u8, old_layout, new_layout.size()) as *mut usize;
                 self.backref =
                     realloc(self.backref as *mut u8, old_layout, new_layout.size()) as *mut usize;
             }
